@@ -1,0 +1,129 @@
+name: Monitor Upstream Releases
+
+on:
+  schedule:
+    # Check for new releases daily at 6 AM UTC
+    - cron: '0 6 1,15 * *'
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if no new release'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    outputs:
+      new_release: ${{ steps.check.outputs.new_release }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+      release_name: ${{ steps.check.outputs.release_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check for new upstream release
+        id: check
+        run: |
+          # Get latest upstream release
+          LATEST_RELEASE=$(curl -s https://api.github.com/repos/actions/runner-images/releases/latest | jq -r '.tag_name')
+          LATEST_NAME=$(curl -s https://api.github.com/repos/actions/runner-images/releases/latest | jq -r '.name')
+          
+          echo "Latest upstream release: $LATEST_RELEASE"
+          
+          # Check if we've already built this release
+          if git tag | grep -q "ami-$LATEST_RELEASE"; then
+            echo "Release $LATEST_RELEASE already built"
+            NEW_RELEASE="false"
+          else
+            echo "New release detected: $LATEST_RELEASE"
+            NEW_RELEASE="true"
+          fi
+          
+          # Override if force build is requested
+          if [ "${{ github.event.inputs.force_build }}" = "true" ]; then
+            echo "Force build requested"
+            NEW_RELEASE="true"
+          fi
+          
+          echo "new_release=$NEW_RELEASE" >> $GITHUB_OUTPUT
+          echo "release_tag=$LATEST_RELEASE" >> $GITHUB_OUTPUT
+          echo "release_name=$LATEST_NAME" >> $GITHUB_OUTPUT
+
+  sync-upstream:
+    needs: check-upstream
+    if: needs.check-upstream.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/actions/runner-images.git || true
+          git fetch upstream
+
+      - name: Sync with upstream
+        run: |
+          # Create or switch to sync branch
+          git checkout -B sync-upstream
+          
+          # Merge upstream changes
+          git merge upstream/main --no-edit
+          
+          # Push changes
+          git push origin sync-upstream
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: sync-upstream
+          title: "Sync with upstream release ${{ needs.check-upstream.outputs.release_tag }}"
+          body: |
+            ## Upstream Sync
+            
+            This PR syncs our fork with the latest upstream release.
+            
+            **Release:** ${{ needs.check-upstream.outputs.release_name }}
+            **Tag:** ${{ needs.check-upstream.outputs.release_tag }}
+            
+            ### Changes
+            - Synced with upstream `actions/runner-images`
+            - Ready for AMI building
+            
+            ### Next Steps
+            - Review changes
+            - Merge to trigger AMI build
+            - Tag release after successful build
+          labels: |
+            upstream-sync
+            automated
+
+  trigger-ami-build:
+    needs: [check-upstream, sync-upstream]
+    if: needs.check-upstream.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger AMI Build
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          event-type: build-ami
+          client-payload: |
+            {
+              "release_tag": "${{ needs.check-upstream.outputs.release_tag }}",
+              "release_name": "${{ needs.check-upstream.outputs.release_name }}",
+              "triggered_by": "upstream-monitor"
+            }

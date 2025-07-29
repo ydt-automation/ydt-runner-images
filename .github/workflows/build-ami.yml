@@ -1,0 +1,233 @@
+name: Build AMI
+
+on:
+  repository_dispatch:
+    types: [build-ami]
+  workflow_dispatch:
+    inputs:
+      os_versions:
+        description: 'OS versions to build (comma-separated)'
+        required: false
+        default: 'ubuntu-24.04'
+        type: string
+      aws_region:
+        description: 'AWS region for building'
+        required: false
+        default: 'ap-southeast-1'
+        type: string
+
+env:
+  AWS_REGION: ${{ github.event.inputs.aws_region || 'ap-southeast-1' }}
+  OS_VERSIONS: ${{ github.event.inputs.os_versions || 'ubuntu-24.04' }}
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set build matrix
+        id: set-matrix
+        run: |
+          # Convert comma-separated OS versions to JSON array
+          OS_ARRAY=$(echo "${{ env.OS_VERSIONS }}" | jq -R -s -c 'split(",") | map(select(length > 0))')
+          echo "matrix={\"os\": $OS_ARRAY}" >> $GITHUB_OUTPUT
+
+  build-ami:
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.build-matrix.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-${{ github.run_id }}
+          role-duration-seconds: 3600
+          mask-aws-account-id: true
+
+      - name: Setup Packer
+        uses: hashicorp/setup-packer@main
+        with:
+          version: "latest"
+
+      - name: Initialize Packer
+        run: |
+          cd aws-templates
+          packer init aws-${{ matrix.os }}.pkr.hcl
+
+      - name: Validate Packer template
+        run: |
+          cd aws-templates
+          packer validate aws-${{ matrix.os }}.pkr.hcl
+
+      - name: Build AMI
+        id: build
+        run: |
+          cd aws-templates
+          
+          # Set AMI name with timestamp
+          TIMESTAMP=$(date +%Y%m%d-%H%M)
+          AMI_NAME="ydt-github-runner-${{ matrix.os }}-${TIMESTAMP}"
+          
+          echo "Building AMI: $AMI_NAME"
+          
+          # Build the AMI
+          packer build \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            -var "ami_name_prefix=ydt-github-runner-${{ matrix.os }}" \
+            aws-${{ matrix.os }}.pkr.hcl
+          
+          # Get the AMI ID from the build output
+          AMI_ID=$(packer build -machine-readable \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            -var "ami_name_prefix=ydt-github-runner-${{ matrix.os }}" \
+            aws-${{ matrix.os }}.pkr.hcl | \
+            awk -F, '$0 ~/artifact,0,id/ {print $6}' | \
+            cut -d':' -f2)
+          
+          echo "ami_id=$AMI_ID" >> $GITHUB_OUTPUT
+          echo "ami_name=$AMI_NAME" >> $GITHUB_OUTPUT
+
+      - name: Test AMI
+        id: test
+        run: |
+          # Launch test instance with SSM access
+          INSTANCE_ID=$(aws ec2 run-instances \
+            --image-id ${{ steps.build.outputs.ami_id }} \
+            --instance-type t3.micro \
+            --security-group-ids ${{ secrets.EC2_SECURITY_GROUP_ID }} \
+            --subnet-id ${{ secrets.EC2_SUBNET_ID }} \
+            --iam-instance-profile Name=GitHubActionsRunnerSSMProfile \
+            --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=AMI-Test-${{ matrix.os }}}]' \
+            --query 'Instances[0].InstanceId' \
+            --output text)
+          
+          echo "Test instance: $INSTANCE_ID"
+          
+          # Wait for instance to be running
+          aws ec2 wait instance-running --instance-ids $INSTANCE_ID
+          
+          # Get instance IP
+          INSTANCE_IP=$(aws ec2 describe-instances \
+            --instance-ids $INSTANCE_ID \
+            --query 'Reservations[0].Instances[0].PublicIpAddress' \
+            --output text)
+          
+          echo "Instance IP: $INSTANCE_IP"
+          
+          # Basic connectivity test (you might want to add SSH tests here)
+          sleep 60  # Wait for instance to fully boot
+          
+          # Cleanup test instance
+          aws ec2 terminate-instances --instance-ids $INSTANCE_ID
+          
+          echo "test_passed=true" >> $GITHUB_OUTPUT
+
+      - name: Tag AMI
+        if: steps.test.outputs.test_passed == 'true'
+        run: |
+          # Tag the AMI for easier discovery
+          aws ec2 create-tags \
+            --resources ${{ steps.build.outputs.ami_id }} \
+            --tags \
+              Key=Environment,Value=production \
+              Key=OS,Value=${{ matrix.os }} \
+              Key=BuildDate,Value=$(date +%Y-%m-%d) \
+              Key=GitCommit,Value=${{ github.sha }} \
+              Key=Repository,Value=${{ github.repository }}
+
+      - name: Share AMI (optional)
+        if: steps.test.outputs.test_passed == 'true'
+        run: |
+          # Uncomment to share AMI with other AWS accounts
+          # aws ec2 modify-image-attribute \
+          #   --image-id ${{ steps.build.outputs.ami_id }} \
+          #   --launch-permission "Add=[{UserId=123456789012}]"
+          echo "AMI sharing skipped"
+
+      - name: Update AMI registry
+        if: steps.test.outputs.test_passed == 'true'
+        run: |
+          # Create or update AMI registry file
+          mkdir -p ami-registry
+          
+          cat > ami-registry/${{ matrix.os }}.json << EOF
+          {
+            "ami_id": "${{ steps.build.outputs.ami_id }}",
+            "ami_name": "${{ steps.build.outputs.ami_name }}",
+            "region": "${{ env.AWS_REGION }}",
+            "os_version": "${{ matrix.os }}",
+            "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "git_commit": "${{ github.sha }}",
+            "tested": true
+          }
+          EOF
+          
+          # Commit the registry update
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ami-registry/${{ matrix.os }}.json
+          git commit -m "Update AMI registry for ${{ matrix.os }}: ${{ steps.build.outputs.ami_id }}"
+          git push
+
+  create-release:
+    needs: [build-ami]
+    if: always() && needs.build-ami.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ami-${{ github.run_number }}
+          release_name: "AMI Build ${{ github.run_number }}"
+          body: |
+            ## GitHub Actions Runner AMI Build
+            
+            **Build Date:** $(date -u +%Y-%m-%d)
+            **Commit:** ${{ github.sha }}
+            **OS Versions:** ${{ env.OS_VERSIONS }}
+            **AWS Region:** ${{ env.AWS_REGION }}
+            
+            ### Built AMIs
+            Check the AMI registry files for specific AMI IDs and details.
+            
+            ### Usage
+            Update your terraform configuration to use these new AMIs:
+            ```hcl
+            ami = {
+              filter = {
+                name  = ["ydt-github-runner-ubuntu-24.04-*"]
+                state = ["available"]
+              }
+              owners = ["your-account-id"]
+            }
+            ```
+          draft: false
+          prerelease: false
+
+  notify:
+    needs: [build-ami, create-release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify success
+        if: needs.build-ami.result == 'success'
+        run: |
+          echo "✅ AMI build completed successfully!"
+
+      - name: Notify failure
+        if: needs.build-ami.result == 'failure'
+        run: |
+          echo "❌ AMI build failed!"
