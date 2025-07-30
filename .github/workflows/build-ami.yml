@@ -34,7 +34,7 @@ jobs:
         id: set-matrix
         run: |
           # Convert comma-separated OS versions to JSON array
-          OS_ARRAY=$(echo "${{ env.OS_VERSIONS }}" | jq -R -s -c 'split(",") | map(select(length > 0))')
+          OS_ARRAY=$(echo "${{ env.OS_VERSIONS }}" | tr -d '\n\r' | jq -R -s -c 'split(",") | map(select(length > 0) | gsub("\\s+"; ""))')
           echo "matrix={\"os\": $OS_ARRAY}" >> $GITHUB_OUTPUT
 
   build-ami:
@@ -65,37 +65,44 @@ jobs:
         run: |
           cd aws-templates
           ls -la aws-*.pkr.hcl
-          echo "Matrix OS value: ${{ matrix.os }}"
-          echo "Looking for file: aws-${{ matrix.os }}.pkr.hcl"
-          packer init aws-${{ matrix.os }}.pkr.hcl
+          OS_VALUE="${{ matrix.os }}"
+          OS_VALUE=$(echo "$OS_VALUE" | tr -d '\n\r' | xargs)
+          echo "Matrix OS value: '$OS_VALUE'"
+          echo "Looking for file: aws-${OS_VALUE}.pkr.hcl"
+          packer init "aws-${OS_VALUE}.pkr.hcl"
 
       - name: Validate Packer template
         run: |
           cd aws-templates
-          packer validate aws-${{ matrix.os }}.pkr.hcl
+          OS_VALUE="${{ matrix.os }}"
+          OS_VALUE=$(echo "$OS_VALUE" | tr -d '\n\r' | xargs)
+          packer validate "aws-${OS_VALUE}.pkr.hcl"
 
       - name: Build AMI
         id: build
         run: |
           cd aws-templates
           
+          OS_VALUE="${{ matrix.os }}"
+          OS_VALUE=$(echo "$OS_VALUE" | tr -d '\n\r' | xargs)
+          
           # Set AMI name with timestamp
           TIMESTAMP=$(date +%Y%m%d-%H%M)
-          AMI_NAME="ydt-github-runner-${{ matrix.os }}-${TIMESTAMP}"
+          AMI_NAME="ydt-github-runner-${OS_VALUE}-${TIMESTAMP}"
           
           echo "Building AMI: $AMI_NAME"
           
           # Build the AMI
           packer build \
             -var "aws_region=${{ env.AWS_REGION }}" \
-            -var "ami_name_prefix=ydt-github-runner-${{ matrix.os }}" \
-            aws-${{ matrix.os }}.pkr.hcl
+            -var "ami_name_prefix=ydt-github-runner-${OS_VALUE}" \
+            "aws-${OS_VALUE}.pkr.hcl"
           
           # Get the AMI ID from the build output
           AMI_ID=$(packer build -machine-readable \
             -var "aws_region=${{ env.AWS_REGION }}" \
-            -var "ami_name_prefix=ydt-github-runner-${{ matrix.os }}" \
-            aws-${{ matrix.os }}.pkr.hcl | \
+            -var "ami_name_prefix=ydt-github-runner-${OS_VALUE}" \
+            "aws-${OS_VALUE}.pkr.hcl" | \
             awk -F, '$0 ~/artifact,0,id/ {print $6}' | \
             cut -d':' -f2)
           
