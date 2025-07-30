@@ -205,7 +205,7 @@ build {
     ]
   }
 
-  # Configure environment
+  # Configure environment (AWS-specific version)
   provisioner "shell" {
     environment_vars = [
       "IMAGE_VERSION=24.04",
@@ -215,7 +215,8 @@ build {
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "cd ${var.runner_images_repo_path}",
-      "./images/ubuntu/scripts/build/configure-environment.sh"
+      "chmod +x ./images/ubuntu/scripts/build/configure-environment-aws.sh",
+      "./images/ubuntu/scripts/build/configure-environment-aws.sh"
     ]
   }
 
