@@ -59,7 +59,6 @@ data "amazon-ami" "base_ami" {
 source "amazon-ebs" "ubuntu_2404" {
   ami_name                    = local.ami_name
   ami_description             = "YDT GitHub Actions Runner - Ubuntu 24.04 with pre-installed tools"
-  instance_type              = var.instance_type
   region                      = var.aws_region
   source_ami                  = data.amazon-ami.base_ami.id
   ssh_username                = "ubuntu"
