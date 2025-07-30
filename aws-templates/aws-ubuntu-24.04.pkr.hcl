@@ -22,7 +22,7 @@ variable "instance_type" {
 
 variable "spot_price" {
   type        = string
-  default     = "0.05"
+  default     = "0.10"
   description = "Maximum spot price for building instance"
 }
 
@@ -66,7 +66,7 @@ source "amazon-ebs" "ubuntu_2404" {
   
   # Spot instance configuration for cost optimization
   spot_price                  = var.spot_price
-  spot_instance_types         = [var.instance_type, "m5.xlarge", "m5a.large"]
+  spot_instance_types         = [var.instance_type, "m5.xlarge", "m5a.large", "m5a.xlarge", "m4.large", "m4.xlarge"]
   
   # EBS configuration
   ebs_optimized              = true
@@ -297,7 +297,6 @@ build {
       "./images/ubuntu/scripts/build/install-kubernetes-tools.sh",
       "./images/ubuntu/scripts/build/install-kotlin.sh",
       "./images/ubuntu/scripts/build/install-microsoft-edge.sh",
-      "./images/ubuntu/scripts/build/install-miniconda.sh",
       "./images/ubuntu/scripts/build/install-miniconda.sh",
       "./images/ubuntu/scripts/build/install-mono.sh",
       "./images/ubuntu/scripts/build/install-mysql.sh",
