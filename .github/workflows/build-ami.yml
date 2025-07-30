@@ -64,6 +64,9 @@ jobs:
       - name: Initialize Packer
         run: |
           cd aws-templates
+          ls -la aws-*.pkr.hcl
+          echo "Matrix OS value: ${{ matrix.os }}"
+          echo "Looking for file: aws-${{ matrix.os }}.pkr.hcl"
           packer init aws-${{ matrix.os }}.pkr.hcl
 
       - name: Validate Packer template
