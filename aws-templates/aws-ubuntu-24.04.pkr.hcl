@@ -141,6 +141,8 @@ build {
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "cd ${var.runner_images_repo_path}",
+      "chmod +x ./images/ubuntu/scripts/build/configure-apt-mock.sh",
+      "chmod +x ./images/ubuntu/scripts/build/*.sh",
       "./images/ubuntu/scripts/build/configure-apt-mock.sh"
     ]
   }
