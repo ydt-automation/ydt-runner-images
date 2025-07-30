@@ -16,6 +16,10 @@ on:
         default: 'ap-southeast-1'
         type: string
 
+permissions:
+  id-token: write
+  contents: read
+
 env:
   AWS_REGION: ${{ github.event.inputs.aws_region || 'ap-southeast-1' }}
   OS_VERSIONS: ${{ github.event.inputs.os_versions || 'ubuntu-24.04' }}
