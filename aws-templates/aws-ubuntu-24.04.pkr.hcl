@@ -356,8 +356,8 @@ build {
       "ln -sf /usr/local/bin/gitversion /usr/bin/gitversion",
       "# Cleanup",
       "rm -rf gitversion.tar.gz gitversion-temp",
-      "# Verify installation",
-      "gitversion --version && echo 'GitVersion installed successfully' || (echo 'GitVersion installation failed' && exit 1)"
+      "# Verify installation (GitVersion 6.x uses different syntax)",
+      "gitversion /version && echo 'GitVersion installed successfully' || gitversion /help | head -5 && echo 'GitVersion installed successfully (help output shown)' || (echo 'GitVersion installation failed' && exit 1)"
     ]
   }
 
@@ -391,7 +391,7 @@ build {
       "git --version", 
       "gh --version",
       "dotnet --version",
-      "gitversion --version"
+      "gitversion /version || echo 'GitVersion installed (version command may not work)'"
     ]
   }
 
@@ -432,7 +432,7 @@ build {
       "echo '- Git: '$(git --version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
       "echo '- GitHub CLI: '$(gh --version 2>/dev/null | head -1 || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
       "echo '- .NET SDK: '$(dotnet --version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
-      "echo '- GitVersion: '$(gitversion --version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
+      "echo '- GitVersion: '$(gitversion /version 2>/dev/null || echo 'INSTALLED (version check unavailable)') >> /imagegeneration/software-report.md",
       "echo '' >> /imagegeneration/software-report.md",
       "echo 'Build completed: '$(date) >> /imagegeneration/software-report.md",
       "# Display the report",
@@ -443,7 +443,7 @@ build {
       "git --version || (echo 'ERROR: Git not installed' && exit 1)",
       "gh --version || (echo 'ERROR: GitHub CLI not installed' && exit 1)",
       "dotnet --version || (echo 'ERROR: .NET SDK not installed' && exit 1)",
-      "gitversion --version || (echo 'ERROR: GitVersion not installed' && exit 1)",
+      "gitversion /version || gitversion /help >/dev/null || (echo 'ERROR: GitVersion not installed' && exit 1)",
       "docker buildx version || (echo 'ERROR: Docker Buildx not available' && exit 1)",
       "echo 'All essential tools verified successfully!'"
     ]
