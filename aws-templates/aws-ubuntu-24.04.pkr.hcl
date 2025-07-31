@@ -406,8 +406,16 @@ build {
     execute_command     = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     pause_before        = "1m0s"
     inline              = [
-      "cd ${var.runner_images_repo_path}",
-      "./images/ubuntu/scripts/build/cleanup.sh"
+      "# Run cleanup from the installed location since /tmp is cleared after reboot",
+      "if [ -d '/imagegeneration' ]; then",
+      "  echo 'Running post-reboot cleanup...'",
+      "  # Basic cleanup operations that don't depend on the source repo",
+      "  apt-get autoremove -y",
+      "  apt-get autoclean",
+      "  echo 'Basic cleanup completed'",
+      "else",
+      "  echo 'Imagegeneration directory not found, skipping cleanup'",
+      "fi"
     ]
     start_retry_timeout = "10m"
   }
