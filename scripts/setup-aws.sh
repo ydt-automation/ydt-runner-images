@@ -94,6 +94,7 @@ EOF
                 "ec2:CreateTags",
                 "ec2:DescribeInstances",
                 "ec2:DescribeImages",
+                "ec2:DescribeVolumes",
                 "ec2:CreateImage",
                 "ec2:DescribeSecurityGroups",
                 "ec2:DescribeSubnets",

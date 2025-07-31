@@ -183,6 +183,9 @@ build {
       "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-github-cli.sh /imagegeneration/installers/",
       "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-dotnetcore-sdk.sh /imagegeneration/installers/",
       "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-docker.sh /imagegeneration/installers/",
+      "# Copy basic test infrastructure for script validation",
+      "mkdir -p /imagegeneration/tests",
+      "cp -r ${var.runner_images_repo_path}/images/ubuntu/scripts/tests/* /imagegeneration/tests/ 2>/dev/null || echo 'No test files found'",
       "chmod +x /imagegeneration/installers/*.sh"
     ]
   }
@@ -225,34 +228,12 @@ build {
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "cd ${var.runner_images_repo_path}",
+      "# Ensure we're on Ubuntu 24.04",
+      "echo 'Verifying Ubuntu version...'",
+      "lsb_release -a",
+      "lsb_release -rs | grep -q '24.04' || (echo 'ERROR: Not Ubuntu 24.04' && exit 1)",
+      "echo 'Ubuntu 24.04 verified successfully'",
       "./images/ubuntu/scripts/build/install-apt-vital.sh"
-    ]
-  }
-
-  # Install PowerShell
-  provisioner "shell" {
-    environment_vars = [
-      "HELPER_SCRIPTS=/imagegeneration/helpers",
-      "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers"
-    ]
-    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
-    inline = [
-      "cd ${var.runner_images_repo_path}",
-      "./images/ubuntu/scripts/build/install-powershell.sh"
-    ]
-  }
-
-  # Install PowerShell modules
-  provisioner "shell" {
-    environment_vars = [
-      "HELPER_SCRIPTS=/imagegeneration/helpers",
-      "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers"
-    ]
-    execute_command = "sudo sh -c '{{ .Vars }} pwsh -f {{ .Path }}'"
-    inline = [
-      "cd ${var.runner_images_repo_path}",
-      "pwsh -f ./images/ubuntu/scripts/build/Install-PowerShellModules.ps1",
-      "pwsh -f ./images/ubuntu/scripts/build/Install-PowerShellAzModules.ps1"
     ]
   }
 
@@ -288,14 +269,24 @@ build {
     inline = [
       "# Install GitVersion",
       "echo 'Installing GitVersion...'",
-      "GITVERSION_VERSION=$(curl -s https://api.github.com/repos/GitTools/GitVersion/releases/latest | grep 'tag_name' | cut -d'\"' -f4)",
-      "echo \"Latest GitVersion version: $GITVERSION_VERSION\"",
-      "curl -sSL \"https://github.com/GitTools/GitVersion/releases/download/$GITVERSION_VERSION/gitversion-linux-x64-$GITVERSION_VERSION.tar.gz\" | tar -xz -C /usr/local/bin",
+      "# Get latest release info and extract version",
+      "GITVERSION_VERSION=$(curl -sSL https://api.github.com/repos/GitTools/GitVersion/releases/latest | grep '\"tag_name\"' | sed -E 's/.*\"tag_name\": ?\"([^\"]+)\".*/\\1/')",
+      "echo \"Installing GitVersion version: $GITVERSION_VERSION\"",
+      "# Download and extract GitVersion",
+      "cd /tmp",
+      "curl -sSL \"https://github.com/GitTools/GitVersion/releases/download/$GITVERSION_VERSION/gitversion-linux-x64-$GITVERSION_VERSION.tar.gz\" -o gitversion.tar.gz",
+      "# Extract to temporary directory first",
+      "mkdir -p gitversion-temp",
+      "tar -xzf gitversion.tar.gz -C gitversion-temp",
+      "# Move executable to /usr/local/bin",
+      "cp gitversion-temp/gitversion /usr/local/bin/",
       "chmod +x /usr/local/bin/gitversion",
       "# Create symlink for global access",
       "ln -sf /usr/local/bin/gitversion /usr/bin/gitversion",
+      "# Cleanup",
+      "rm -rf gitversion.tar.gz gitversion-temp",
       "# Verify installation",
-      "gitversion --version && echo 'GitVersion installed successfully' || echo 'GitVersion installation failed'"
+      "gitversion --version && echo 'GitVersion installed successfully' || (echo 'GitVersion installation failed' && exit 1)"
     ]
   }
 
@@ -308,14 +299,26 @@ build {
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "cd ${var.runner_images_repo_path}",
-      "# Enable Docker Buildx (comes with Docker but ensure it's available)",
-      "docker buildx version || echo 'Docker Buildx not found'",
+      "# Configure Docker Buildx (ensure it's properly set up)",
+      "echo 'Setting up Docker Buildx...'",
+      "# Add ubuntu user to docker group",
+      "usermod -aG docker ubuntu",
+      "# Start docker service",
+      "systemctl enable docker",
+      "systemctl start docker",
+      "# Wait for docker to be ready",
+      "sleep 10",
+      "# Set up buildx as the default builder",
+      "sudo -u ubuntu docker buildx install",
+      "sudo -u ubuntu docker buildx create --name multiarch --driver docker-container --use",
+      "sudo -u ubuntu docker buildx inspect --bootstrap",
       "# Verify all required tools are installed",
       "docker --version",
+      "docker buildx version",
       "git --version", 
       "gh --version",
       "dotnet --version",
-      "gitversion --version || echo 'GitVersion may need manual verification'"
+      "gitversion --version"
     ]
   }
 
@@ -349,16 +352,27 @@ build {
       "echo '## Installed Software' >> /imagegeneration/software-report.md",
       "echo '' >> /imagegeneration/software-report.md",
       "echo '### Container Tools' >> /imagegeneration/software-report.md",
-      "echo '- Docker: '$(docker --version) >> /imagegeneration/software-report.md",
-      "echo '- Docker Buildx: '$(docker buildx version) >> /imagegeneration/software-report.md",
+      "echo '- Docker: '$(docker --version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
+      "echo '- Docker Buildx: '$(docker buildx version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
       "echo '' >> /imagegeneration/software-report.md",
       "echo '### Development Tools' >> /imagegeneration/software-report.md", 
-      "echo '- Git: '$(git --version) >> /imagegeneration/software-report.md",
-      "echo '- GitHub CLI: '$(gh --version | head -1) >> /imagegeneration/software-report.md",
-      "echo '- .NET SDK: '$(dotnet --version) >> /imagegeneration/software-report.md",
-      "echo '- GitVersion: '$(gitversion --version || echo 'Not properly installed') >> /imagegeneration/software-report.md",
+      "echo '- Git: '$(git --version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
+      "echo '- GitHub CLI: '$(gh --version 2>/dev/null | head -1 || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
+      "echo '- .NET SDK: '$(dotnet --version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
+      "echo '- GitVersion: '$(gitversion --version 2>/dev/null || echo 'NOT INSTALLED') >> /imagegeneration/software-report.md",
       "echo '' >> /imagegeneration/software-report.md",
-      "echo 'Build completed: '$(date) >> /imagegeneration/software-report.md"
+      "echo 'Build completed: '$(date) >> /imagegeneration/software-report.md",
+      "# Display the report",
+      "cat /imagegeneration/software-report.md",
+      "# Fail build if essential tools are missing",
+      "echo 'Verifying essential tools installation...'",
+      "docker --version || (echo 'ERROR: Docker not installed' && exit 1)",
+      "git --version || (echo 'ERROR: Git not installed' && exit 1)",
+      "gh --version || (echo 'ERROR: GitHub CLI not installed' && exit 1)",
+      "dotnet --version || (echo 'ERROR: .NET SDK not installed' && exit 1)",
+      "gitversion --version || (echo 'ERROR: GitVersion not installed' && exit 1)",
+      "docker buildx version || (echo 'ERROR: Docker Buildx not available' && exit 1)",
+      "echo 'All essential tools verified successfully!'"
     ]
   }
 
