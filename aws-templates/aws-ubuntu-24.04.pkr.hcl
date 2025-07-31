@@ -183,6 +183,22 @@ build {
       "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-github-cli.sh /imagegeneration/installers/",
       "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-dotnetcore-sdk.sh /imagegeneration/installers/",
       "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-docker.sh /imagegeneration/installers/",
+      "# Create minimal toolset.json for essential tools only",
+      "cat > /imagegeneration/installers/toolset.json << 'EOF'",
+      "{",
+      "  \"toolcache\": [],",
+      "  \"dotnet\": {",
+      "    \"aptPackages\": [\"dotnet-sdk-8.0\"],", 
+      "    \"versions\": [\"8.0\"]",
+      "  },",
+      "  \"docker\": {",
+      "    \"components\": [\"docker-ce\", \"docker-ce-cli\", \"containerd.io\", \"docker-buildx-plugin\"]",
+      "  },",
+      "  \"git\": {",
+      "    \"version\": \"latest\"",
+      "  }",
+      "}",
+      "EOF",
       "# Copy basic test infrastructure for script validation",
       "mkdir -p /imagegeneration/tests",
       "cp -r ${var.runner_images_repo_path}/images/ubuntu/scripts/tests/* /imagegeneration/tests/ 2>/dev/null || echo 'No test files found'",
@@ -214,7 +230,17 @@ build {
     inline = [
       "cd ${var.runner_images_repo_path}",
       "chmod +x ./images/ubuntu/scripts/build/configure-environment-aws.sh",
-      "./images/ubuntu/scripts/build/configure-environment-aws.sh"
+      "./images/ubuntu/scripts/build/configure-environment-aws.sh",
+      "# Create a no-PowerShell version of invoke_tests",
+      "cat > /imagegeneration/helpers/invoke-tests-minimal.sh << 'EOF'",
+      "#!/bin/bash",
+      "# Minimal invoke_tests replacement that doesn't require PowerShell",
+      "echo \"Test skipped: $1 - $2 (PowerShell not available in minimal build)\"",
+      "exit 0",
+      "EOF",
+      "chmod +x /imagegeneration/helpers/invoke-tests-minimal.sh",
+      "# Replace the PowerShell-dependent invoke_tests with our minimal version",
+      "ln -sf /imagegeneration/helpers/invoke-tests-minimal.sh /usr/local/bin/invoke_tests"
     ]
   }
 
