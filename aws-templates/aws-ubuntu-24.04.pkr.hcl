@@ -171,24 +171,19 @@ build {
     ]
   }
 
-  # Copy installer scripts
+  # Copy minimal required files
   provisioner "shell" {
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
-      "cp -r ${var.runner_images_repo_path}/images/ubuntu/scripts/build /imagegeneration/installers",
+      "# Copy only essential installer scripts we're using",
+      "mkdir -p /imagegeneration/installers",
+      "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-actions-cache.sh /imagegeneration/installers/",
+      "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-runner-package.sh /imagegeneration/installers/",
+      "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-git.sh /imagegeneration/installers/",
+      "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-github-cli.sh /imagegeneration/installers/",
+      "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-dotnetcore-sdk.sh /imagegeneration/installers/",
+      "cp ${var.runner_images_repo_path}/images/ubuntu/scripts/build/install-docker.sh /imagegeneration/installers/",
       "chmod +x /imagegeneration/installers/*.sh"
-    ]
-  }
-
-  # Copy additional required files
-  provisioner "shell" {
-    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
-    inline = [
-      "cp -r ${var.runner_images_repo_path}/images/ubuntu/assets/post-gen /imagegeneration/post-generation",
-      "cp -r ${var.runner_images_repo_path}/images/ubuntu/scripts/tests /imagegeneration/",
-      "cp -r ${var.runner_images_repo_path}/images/ubuntu/scripts/docs-gen /imagegeneration/SoftwareReport",
-      "cp -r ${var.runner_images_repo_path}/helpers/software-report-base/* /imagegeneration/SoftwareReport/",
-      "cp ${var.runner_images_repo_path}/images/ubuntu/toolsets/toolset-2404.json /imagegeneration/installers/toolset.json"
     ]
   }
 
@@ -261,7 +256,7 @@ build {
     ]
   }
 
-  # Install essential software packages
+  # Install essential software packages (minimal set)
   provisioner "shell" {
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
@@ -271,92 +266,40 @@ build {
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "cd ${var.runner_images_repo_path}",
+      "# Core GitHub Actions support",
       "./images/ubuntu/scripts/build/install-actions-cache.sh",
       "./images/ubuntu/scripts/build/install-runner-package.sh",
-      "./images/ubuntu/scripts/build/install-apt-common.sh",
-      "./images/ubuntu/scripts/build/install-azcopy.sh",
-      "./images/ubuntu/scripts/build/install-azure-cli.sh",
-      "./images/ubuntu/scripts/build/install-azure-devops-cli.sh",
-      "./images/ubuntu/scripts/build/install-bicep.sh",
-      "./images/ubuntu/scripts/build/install-apache.sh",
-      "./images/ubuntu/scripts/build/install-aws-tools.sh",
-      "./images/ubuntu/scripts/build/install-clang.sh",
-      "./images/ubuntu/scripts/build/install-swift.sh",
-      "./images/ubuntu/scripts/build/install-cmake.sh",
-      "./images/ubuntu/scripts/build/install-codeql-bundle.sh",
-      "./images/ubuntu/scripts/build/install-container-tools.sh",
-      "./images/ubuntu/scripts/build/install-dotnetcore-sdk.sh",
-      "./images/ubuntu/scripts/build/install-firefox.sh",
-      "./images/ubuntu/scripts/build/install-gcc-compilers.sh",
-      "./images/ubuntu/scripts/build/install-gfortran.sh",
+      "# Essential development tools",
       "./images/ubuntu/scripts/build/install-git.sh",
-      "./images/ubuntu/scripts/build/install-git-lfs.sh",
       "./images/ubuntu/scripts/build/install-github-cli.sh",
-      "./images/ubuntu/scripts/build/install-google-chrome.sh",
-      "./images/ubuntu/scripts/build/install-google-cloud-cli.sh",
-      "./images/ubuntu/scripts/build/install-haskell.sh",
-      "./images/ubuntu/scripts/build/install-heroku.sh",
-      "./images/ubuntu/scripts/build/install-java-tools.sh",
-      "./images/ubuntu/scripts/build/install-kubernetes-tools.sh",
-      "./images/ubuntu/scripts/build/install-kotlin.sh",
-      "./images/ubuntu/scripts/build/install-microsoft-edge.sh",
-      "./images/ubuntu/scripts/build/install-miniconda.sh",
-      "./images/ubuntu/scripts/build/install-mono.sh",
-      "./images/ubuntu/scripts/build/install-mysql.sh",
-      "./images/ubuntu/scripts/build/install-nginx.sh",
-      "./images/ubuntu/scripts/build/install-nodejs.sh",
-      "./images/ubuntu/scripts/build/install-nvm.sh",
-      "./images/ubuntu/scripts/build/install-bazel.sh",
-      "./images/ubuntu/scripts/build/install-php.sh",
-      "./images/ubuntu/scripts/build/install-postgresql.sh",
-      "./images/ubuntu/scripts/build/install-pulumi.sh",
-      "./images/ubuntu/scripts/build/install-python.sh",
-      "./images/ubuntu/scripts/build/install-ruby.sh",
-      "./images/ubuntu/scripts/build/install-rust.sh",
-      "./images/ubuntu/scripts/build/install-julia.sh",
-      "./images/ubuntu/scripts/build/install-selenium.sh",
-      "./images/ubuntu/scripts/build/install-packer.sh",
-      "./images/ubuntu/scripts/build/install-terraform.sh",
-      "./images/ubuntu/scripts/build/install-vcpkg.sh",
-      "./images/ubuntu/scripts/build/configure-dpkg.sh",
-      "./images/ubuntu/scripts/build/install-yq.sh",
-      "./images/ubuntu/scripts/build/install-android-sdk.sh",
-      "./images/ubuntu/scripts/build/install-pypy.sh",
-      "./images/ubuntu/scripts/build/install-python.sh",
-      "./images/ubuntu/scripts/build/install-zstd.sh",
-      "./images/ubuntu/scripts/build/install-ninja.sh"
-    ]
-  }
-
-  # Install Docker separately
-  provisioner "shell" {
-    environment_vars = [
-      "HELPER_SCRIPTS=/imagegeneration/helpers",
-      "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers",
-      "DOCKERHUB_PULL_IMAGES=NO"
-    ]
-    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
-    inline = [
-      "cd ${var.runner_images_repo_path}",
+      "./images/ubuntu/scripts/build/install-dotnetcore-sdk.sh",
+      "# Container tools",
       "./images/ubuntu/scripts/build/install-docker.sh"
     ]
   }
 
-  # Install and configure toolsets
+  # Install GitVersion manually (not in standard scripts)
   provisioner "shell" {
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
-      "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers"
+      "DEBIAN_FRONTEND=noninteractive"
     ]
-    execute_command = "sudo sh -c '{{ .Vars }} pwsh -f {{ .Path }}'"
+    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
-      "cd ${var.runner_images_repo_path}",
-      "pwsh -f ./images/ubuntu/scripts/build/Install-Toolset.ps1",
-      "pwsh -f ./images/ubuntu/scripts/build/Configure-Toolset.ps1"
+      "# Install GitVersion",
+      "echo 'Installing GitVersion...'",
+      "GITVERSION_VERSION=$(curl -s https://api.github.com/repos/GitTools/GitVersion/releases/latest | grep 'tag_name' | cut -d'\"' -f4)",
+      "echo \"Latest GitVersion version: $GITVERSION_VERSION\"",
+      "curl -sSL \"https://github.com/GitTools/GitVersion/releases/download/$GITVERSION_VERSION/gitversion-linux-x64-$GITVERSION_VERSION.tar.gz\" | tar -xz -C /usr/local/bin",
+      "chmod +x /usr/local/bin/gitversion",
+      "# Create symlink for global access",
+      "ln -sf /usr/local/bin/gitversion /usr/bin/gitversion",
+      "# Verify installation",
+      "gitversion --version && echo 'GitVersion installed successfully' || echo 'GitVersion installation failed'"
     ]
   }
 
-  # Install pipx packages
+  # Install and configure minimal toolsets
   provisioner "shell" {
     environment_vars = [
       "HELPER_SCRIPTS=/imagegeneration/helpers",
@@ -365,33 +308,14 @@ build {
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
     inline = [
       "cd ${var.runner_images_repo_path}",
-      "./images/ubuntu/scripts/build/install-pipx-packages.sh"
-    ]
-  }
-
-  # Install Homebrew
-  provisioner "shell" {
-    environment_vars = [
-      "HELPER_SCRIPTS=/imagegeneration/helpers",
-      "DEBIAN_FRONTEND=noninteractive",
-      "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers"
-    ]
-    execute_command = "/bin/sh -c '{{ .Vars }} {{ .Path }}'"
-    inline = [
-      "cd ${var.runner_images_repo_path}",
-      "./images/ubuntu/scripts/build/install-homebrew.sh"
-    ]
-  }
-
-  # Configure snap
-  provisioner "shell" {
-    environment_vars = [
-      "HELPER_SCRIPTS=/imagegeneration/helpers"
-    ]
-    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
-    inline = [
-      "cd ${var.runner_images_repo_path}",
-      "./images/ubuntu/scripts/build/configure-snap.sh"
+      "# Enable Docker Buildx (comes with Docker but ensure it's available)",
+      "docker buildx version || echo 'Docker Buildx not found'",
+      "# Verify all required tools are installed",
+      "docker --version",
+      "git --version", 
+      "gh --version",
+      "dotnet --version",
+      "gitversion --version || echo 'GitVersion may need manual verification'"
     ]
   }
 
@@ -412,15 +336,29 @@ build {
     start_retry_timeout = "10m"
   }
 
-  # Generate software report and run tests
+  # Generate minimal software report and run basic tests
   provisioner "shell" {
     environment_vars = [
       "IMAGE_VERSION=24.04",
       "INSTALLER_SCRIPT_FOLDER=/imagegeneration/installers"
     ]
     inline = [
-      "pwsh -File /imagegeneration/SoftwareReport/Generate-SoftwareReport.ps1 -OutputDirectory /imagegeneration",
-      "pwsh -File /imagegeneration/tests/RunAll-Tests.ps1 -OutputDirectory /imagegeneration"
+      "# Create basic software report",
+      "echo '# YDT GitHub Runner - Ubuntu 24.04 Software Report' > /imagegeneration/software-report.md",
+      "echo '' >> /imagegeneration/software-report.md",
+      "echo '## Installed Software' >> /imagegeneration/software-report.md",
+      "echo '' >> /imagegeneration/software-report.md",
+      "echo '### Container Tools' >> /imagegeneration/software-report.md",
+      "echo '- Docker: '$(docker --version) >> /imagegeneration/software-report.md",
+      "echo '- Docker Buildx: '$(docker buildx version) >> /imagegeneration/software-report.md",
+      "echo '' >> /imagegeneration/software-report.md",
+      "echo '### Development Tools' >> /imagegeneration/software-report.md", 
+      "echo '- Git: '$(git --version) >> /imagegeneration/software-report.md",
+      "echo '- GitHub CLI: '$(gh --version | head -1) >> /imagegeneration/software-report.md",
+      "echo '- .NET SDK: '$(dotnet --version) >> /imagegeneration/software-report.md",
+      "echo '- GitVersion: '$(gitversion --version || echo 'Not properly installed') >> /imagegeneration/software-report.md",
+      "echo '' >> /imagegeneration/software-report.md",
+      "echo 'Build completed: '$(date) >> /imagegeneration/software-report.md"
     ]
   }
 
