@@ -326,7 +326,14 @@ build {
       "./images/ubuntu/scripts/build/install-github-cli.sh",
       "./images/ubuntu/scripts/build/install-dotnetcore-sdk.sh",
       "# Container tools",
-      "./images/ubuntu/scripts/build/install-docker.sh"
+      "./images/ubuntu/scripts/build/install-docker.sh",
+      "# Install AWS CLI for SSM parameter access",
+      "echo 'Installing AWS CLI...'",
+      "curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o \"awscliv2.zip\"",
+      "unzip awscliv2.zip",
+      "./aws/install",
+      "rm -rf aws awscliv2.zip",
+      "echo 'AWS CLI installed successfully'"
     ]
   }
 
@@ -504,6 +511,130 @@ build {
       "# Set hostname",
       "hostnamectl set-hostname ubuntu-runner",
       "echo 'System configuration completed'"
+    ]
+  }
+
+  # Install and configure GitHub Actions Runner
+  provisioner "shell" {
+    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
+    inline = [
+      "# Create runner user and directory",
+      "useradd -m -s /bin/bash runner || echo 'runner user already exists'",
+      "mkdir -p /opt/actions-runner",
+      "chown runner:runner /opt/actions-runner",
+      "# Download GitHub Actions Runner",
+      "cd /opt/actions-runner",
+      "RUNNER_VERSION=$(curl -s https://api.github.com/repos/actions/runner/releases/latest | grep 'tag_name' | cut -d'\"' -f4 | cut -d'v' -f2)",
+      "curl -o actions-runner-linux-x64-$RUNNER_VERSION.tar.gz -L https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-x64-$RUNNER_VERSION.tar.gz",
+      "tar xzf ./actions-runner-linux-x64-$RUNNER_VERSION.tar.gz",
+      "rm actions-runner-linux-x64-$RUNNER_VERSION.tar.gz",
+      "chown -R runner:runner /opt/actions-runner",
+      "# Install dependencies",
+      "./bin/installdependencies.sh"
+    ]
+  }
+
+  # Create runner startup script for terraform integration
+  provisioner "shell" {
+    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
+    inline = [
+      "# Create startup script that integrates with terraform module",
+      "cat > /opt/runner-startup.sh << 'EOF'",
+      "#!/bin/bash",
+      "set -e",
+      "",
+      "# Function to get instance metadata",
+      "get_instance_metadata() {",
+      "    curl -s http://169.254.169.254/latest/meta-data/$1",
+      "}",
+      "",
+      "# Function to get SSM parameter",
+      "get_ssm_parameter() {",
+      "    aws ssm get-parameter --region $(get_instance_metadata placement/region) --name \"$1\" --with-decryption --query 'Parameter.Value' --output text",
+      "}",
+      "",
+      "# Get instance metadata",
+      "INSTANCE_ID=$(get_instance_metadata instance-id)",
+      "REGION=$(get_instance_metadata placement/region)",
+      "",
+      "echo \"Starting GitHub Actions Runner setup for instance: $INSTANCE_ID\"",
+      "",
+      "# Get SSM parameter path from instance tags",
+      "SSM_CONFIG_PATH=$(aws ec2 describe-tags --region $REGION --filters \"Name=resource-id,Values=$INSTANCE_ID\" \"Name=key,Values=ghr:ssm_config_path\" --query 'Tags[0].Value' --output text)",
+      "",
+      "if [ \"$SSM_CONFIG_PATH\" = \"None\" ] || [ -z \"$SSM_CONFIG_PATH\" ]; then",
+      "    echo \"ERROR: SSM config path not found in instance tags\"",
+      "    exit 1",
+      "fi",
+      "",
+      "echo \"Using SSM config path: $SSM_CONFIG_PATH\"",
+      "",
+      "# Get configuration from SSM",
+      "RUNNER_TOKEN=$(get_ssm_parameter \"$SSM_CONFIG_PATH/token\")",
+      "GITHUB_URL=$(get_ssm_parameter \"$SSM_CONFIG_PATH/url\")",
+      "RUNNER_LABELS=$(get_ssm_parameter \"$SSM_CONFIG_PATH/labels\" || echo \"\")",
+      "RUNNER_GROUP=$(get_ssm_parameter \"$SSM_CONFIG_PATH/group\" || echo \"default\")",
+      "",
+      "# Validate required parameters",
+      "if [ -z \"$RUNNER_TOKEN\" ] || [ -z \"$GITHUB_URL\" ]; then",
+      "    echo \"ERROR: Missing required SSM parameters (token or url)\"",
+      "    exit 1",
+      "fi",
+      "",
+      "echo \"Configuring runner for: $GITHUB_URL\"",
+      "",
+      "# Configure runner as the runner user",
+      "cd /opt/actions-runner",
+      "sudo -u runner ./config.sh \\",
+      "    --url \"$GITHUB_URL\" \\",
+      "    --token \"$RUNNER_TOKEN\" \\",
+      "    --name \"$INSTANCE_ID\" \\",
+      "    --labels \"$RUNNER_LABELS\" \\",
+      "    --runnergroup \"$RUNNER_GROUP\" \\",
+      "    --work \"/opt/actions-runner/_work\" \\",
+      "    --replace \\",
+      "    --unattended",
+      "",
+      "# Start runner",
+      "echo \"Starting GitHub Actions Runner...\"",
+      "sudo -u runner nohup ./run.sh > /var/log/runner.log 2>&1 &",
+      "",
+      "echo \"GitHub Actions Runner started successfully\"",
+      "EOF",
+      "",
+      "chmod +x /opt/runner-startup.sh",
+      "chown root:root /opt/runner-startup.sh"
+    ]
+  }
+
+  # Create systemd service for runner startup
+  provisioner "shell" {
+    execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
+    inline = [
+      "# Create systemd service for automatic runner startup",
+      "cat > /etc/systemd/system/github-runner-startup.service << 'EOF'",
+      "[Unit]",
+      "Description=GitHub Actions Runner Startup",
+      "After=network.target cloud-final.service",
+      "Wants=cloud-final.service",
+      "",
+      "[Service]",
+      "Type=oneshot",
+      "ExecStart=/opt/runner-startup.sh",
+      "User=root",
+      "StandardOutput=journal",
+      "StandardError=journal",
+      "RemainAfterExit=yes",
+      "",
+      "[Install]",
+      "WantedBy=multi-user.target",
+      "EOF",
+      "",
+      "# Enable the service",
+      "systemctl daemon-reload",
+      "systemctl enable github-runner-startup.service",
+      "",
+      "echo 'GitHub Runner startup service configured and enabled'"
     ]
   }
 
