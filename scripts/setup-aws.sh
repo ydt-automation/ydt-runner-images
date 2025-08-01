@@ -126,7 +126,9 @@ EOF
                 "ec2:DescribeSpotInstanceRequests",
                 "ec2:RequestSpotInstances",
                 "ec2:CancelSpotInstanceRequests",
-                "iam:PassRole"
+                "iam:PassRole",
+                "ec2:DeregisterImage",
+                "ec2:CopyImage"
             ],
             "Resource": "*"
         },
