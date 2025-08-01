@@ -542,7 +542,9 @@ build {
       "# Clear history and prepare for AMI",
       "rm -f /home/ubuntu/.bash_history",
       "rm -f /root/.bash_history",
-      "history -c"
+      "# Clear current session history (if available)",
+      "history -c 2>/dev/null || echo 'History command not available in this shell context'",
+      "echo 'Final cleanup completed successfully'"
     ]
   }
 }
