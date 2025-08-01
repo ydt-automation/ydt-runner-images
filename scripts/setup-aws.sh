@@ -128,7 +128,8 @@ EOF
                 "ec2:CancelSpotInstanceRequests",
                 "iam:PassRole",
                 "ec2:DeregisterImage",
-                "ec2:CopyImage"
+                "ec2:CopyImage",
+                "ec2:DeleteSnapshot"
             ],
             "Resource": "*"
         },

@@ -18,7 +18,8 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
+  pull-requests: write
 
 env:
   AWS_REGION: ${{ github.event.inputs.aws_region || 'ap-southeast-1' }}
@@ -46,6 +47,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -189,7 +193,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add ami-registry/${{ matrix.os }}.json
           git commit -m "Update AMI registry for ${{ matrix.os }}: ${{ steps.build.outputs.ami_id }}"
-          git push
+          git push origin HEAD:main
 
   create-release:
     needs: [build-ami]
