@@ -1,9 +1,9 @@
 {
-  "ami_id": "ami-01e1279c7e4ed33c8",
-  "ami_name": "ydt-github-runner-ubuntu-24.04-20250801-0724",
+  "ami_id": "ami-0fc6fd0872fa14eb0",
+  "ami_name": "ydt-github-runner-ubuntu-24.04-20250802-0220",
   "region": "ap-southeast-1",
   "os_version": "ubuntu-24.04",
-  "build_date": "2025-08-01T08:14:14Z",
-  "git_commit": "768fa084a3c4edfb1a3bd6be33e66a71af748466",
+  "build_date": "2025-08-02T03:10:27Z",
+  "git_commit": "3c8ba382eebfe8aded2603fcaf23b731296598de",
   "tested": true
 }
