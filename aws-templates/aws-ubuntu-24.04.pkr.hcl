@@ -38,9 +38,40 @@ variable "runner_images_repo_path" {
   description = "Path where runner-images repository will be cloned"
 }
 
+variable "runner_version" {
+  type        = string
+  default     = null
+  description = "The version (no v prefix) of the runner software to install. The latest release will be fetched from GitHub if not provided."
+}
+
+variable "custom_shell_commands" {
+  type        = list(string)
+  default     = []
+  description = "Additional commands to run on the EC2 instance, to customize the instance, like installing packages"
+}
+
+variable "enable_cloudwatch_agent" {
+  type        = bool
+  default     = false
+  description = "Whether to install and configure CloudWatch Agent for monitoring"
+}
+
 locals {
   timestamp = regex_replace(timestamp(), "[- TZ:]", "")
   ami_name  = "${var.ami_name_prefix}-${local.timestamp}"
+}
+
+# Data sources for dynamic runner version
+data "http" "github_runner_release_json" {
+  url = "https://api.github.com/repos/actions/runner/releases/latest"
+  request_headers = {
+    Accept = "application/vnd.github+json"
+    X-GitHub-Api-Version = "2022-11-28"
+  }
+}
+
+locals {
+  runner_version = coalesce(var.runner_version, trimprefix(jsondecode(data.http.github_runner_release_json.body).tag_name, "v"))
 }
 
 # Data sources
@@ -316,7 +347,7 @@ build {
       "DEBIAN_FRONTEND=noninteractive"
     ]
     execute_command = "sudo sh -c '{{ .Vars }} {{ .Path }}'"
-    inline = [
+    inline = concat([
       "cd ${var.runner_images_repo_path}",
       "# Core GitHub Actions support",
       "./images/ubuntu/scripts/build/install-actions-cache.sh",
@@ -334,7 +365,17 @@ build {
       "./aws/install",
       "rm -rf aws awscliv2.zip",
       "echo 'AWS CLI installed successfully'"
-    ]
+    ],
+    var.custom_shell_commands,
+    var.enable_cloudwatch_agent ? [
+      "# Install CloudWatch Agent",
+      "echo 'Installing CloudWatch Agent...'",
+      "curl -f https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb -o amazon-cloudwatch-agent.deb",
+      "dpkg -i amazon-cloudwatch-agent.deb",
+      "systemctl enable amazon-cloudwatch-agent",
+      "rm amazon-cloudwatch-agent.deb",
+      "echo 'CloudWatch Agent installed successfully'"
+    ] : [])
   }
 
   # Install GitVersion manually (not in standard scripts)
@@ -524,7 +565,8 @@ build {
       "chown runner:runner /opt/actions-runner",
       "# Download GitHub Actions Runner",
       "cd /opt/actions-runner",
-      "RUNNER_VERSION=$(curl -s https://api.github.com/repos/actions/runner/releases/latest | grep 'tag_name' | cut -d'\"' -f4 | cut -d'v' -f2)",
+      "RUNNER_VERSION=${local.runner_version}",
+      "echo \"Installing GitHub Actions Runner version: $RUNNER_VERSION\"",
       "curl -o actions-runner-linux-x64-$RUNNER_VERSION.tar.gz -L https://github.com/actions/runner/releases/download/v$RUNNER_VERSION/actions-runner-linux-x64-$RUNNER_VERSION.tar.gz",
       "tar xzf ./actions-runner-linux-x64-$RUNNER_VERSION.tar.gz",
       "rm actions-runner-linux-x64-$RUNNER_VERSION.tar.gz",
@@ -677,5 +719,11 @@ build {
       "history -c 2>/dev/null || echo 'History command not available in this shell context'",
       "echo 'Final cleanup completed successfully'"
     ]
+  }
+
+  # Generate build manifest
+  post-processor "manifest" {
+    output     = "manifest.json"
+    strip_path = true
   }
 }
